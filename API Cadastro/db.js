@@ -9,7 +9,7 @@ async function connect() {
     }
 
     const pool = new Pool({
-        connectionString: process.env.CONNECTION_STRING
+        connectionString: process.env.DATABASE_URL
     });
 
     const client = await pool.connect();
