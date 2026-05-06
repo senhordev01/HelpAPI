@@ -14,7 +14,7 @@ async function connect() {
 
     const client = await pool.connect();
 
-    console.log("Criou o pool de conexao");
+    console.log("Conectou com o PostgreSQL");
 
     const res = await client.query("select now()");
     console.log(res.rows[0]);
