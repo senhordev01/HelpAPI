@@ -280,22 +280,35 @@ app.put("/usuarios/:id", checar_token, async (req, res) => {
 
 app.delete("/usuarios/:id", checar_token, async (req, res) => {
     try {
-        const { id } = req.params;
+        const paramID = Number(req.params.id);
+        const usuarioID = Number(req.usuario.id);
 
-        if (!verificarAcesso(req, id)) {
+        console.log("JWT ID:", usuarioID);
+        console.log("PARAM ID:", paramID);
+
+        if (!usuarioID) {
+            return res.status(403).json("Token inválido (sem ID)");
+        }
+
+        if (usuarioID !== paramID) {
             return res.status(403).json("Acesso negado");
         }
 
         const conexao = await db();
 
-        await conexao.query(
-            "DELETE FROM Usuario WHERE usuarioID=$1",
-            [id]
+        const resultado = await conexao.query(
+            "DELETE FROM Usuario WHERE usuarioID=$1 RETURNING usuarioID",
+            [paramID]
         );
+
+        if (resultado.rowCount === 0) {
+            return res.status(404).json("Usuário não encontrado");
+        }
 
         res.json("Usuário deletado");
 
     } catch (erro) {
+        console.log("DELETE ERROR:", erro.message);
         res.status(500).json("Erro no servidor");
     }
 });
