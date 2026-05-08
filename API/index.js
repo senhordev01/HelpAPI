@@ -17,6 +17,7 @@ app.use(cors());
 const algoritmo = 'aes-256-cbc';
 const chave = Buffer.from(process.env.CHAVE_CRYPTO, 'hex');
 
+
 function normalizarCPF(cpf) {
     return cpf.replace(/\D/g, '');
 }
@@ -54,7 +55,9 @@ function mascararCPF(cpf) {
 function validarCPF(cpf) {
     cpf = normalizarCPF(cpf);
 
-    if (cpf.length !== 11 || /^(\d)\1+$/.test(cpf)) return false;
+    if (cpf.length !== 11 || /^(\d)\1+$/.test(cpf)){
+       return false; 
+    }
 
     let soma = 0;
     let resto;
@@ -76,7 +79,97 @@ function validarCPF(cpf) {
     return resto === parseInt(cpf.substring(10, 11));
 }
 
-// ================= TOKEN (CORRIGIDO DEFINITIVO) =================
+
+function normalizarCNPJ(cnpj) {
+    return cnpj.replace(/\D/g, '');
+}
+
+
+function criptografarCNPJ(cnpj){
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv(algoritmo, chave, iv);
+
+    let criptado = cipher.update(cnpj, 'utf8', 'hex');
+    criptado += cipher.final('hex');
+
+    return iv.toString('hex') + ':' + criptado;
+}
+
+
+function descriptografarCNPJ(cnpjCriptado) {
+    const [ivHex, conteudo] = cnpjCriptado.split(':');
+
+    const iv = Buffer.from(ivHex, 'hex');
+    const decipher = crypto.createDecipheriv(algoritmo, chave, iv);
+
+    let descriptado = decipher.update(conteudo, 'hex', 'utf8');
+    descriptado += decipher.final('utf8');
+
+    return descriptado;
+}
+
+
+function hashCNPJ(cnpj) {
+    return crypto.createHash('sha256').update(cnpj).digest('hex');
+}
+
+function mascararCNPJ(cnpj) {
+    return cnpj.replace(
+        /^(\d{2})\d{8}(\d{4})$/,
+        '$1.********$2'
+    );
+}
+
+function validarCNPJ(cnpj){
+    cnpj = normalizarCNPJ(cnpj);
+    if(cnpj.length !== 14 || /^(\d)\1+$/.test(cnpj)){
+        return false;
+    }
+
+    let tamanho = 12;
+    let numeros = cnpj.substring(0, tamanho);
+    let digitos = cnpj.substring(tamanho);
+
+    let soma = 0;
+    let pos = tamanho - 7;
+
+    // Primeiro dígito
+    for (let i = tamanho; i >= 1; i--) {
+        soma += Number(numeros[tamanho - i]) * pos--;
+
+        if (pos < 2) {
+            pos = 9;
+        }
+    }
+
+    let resultado = soma % 11 < 2 ? 0 : 11 - (soma % 11);
+
+    if (resultado !== Number(digitos[0])) {
+        return false;
+    }
+
+    // Segundo dígito
+    tamanho = 13;
+    numeros = cnpj.substring(0, tamanho);
+
+    soma = 0;
+    pos = tamanho - 7;
+
+    for (let i = tamanho; i >= 1; i--) {
+        soma += Number(numeros[tamanho - i]) * pos--;
+
+        if (pos < 2) {
+            pos = 9;
+        }
+    }
+
+    resultado = soma % 11 < 2 ? 0 : 11 - (soma % 11);
+
+    return resultado === Number(digitos[1]);
+
+}
+
+// ================= TOKEN =================
 
 function checar_token(req, res, next) {
     try {
@@ -100,7 +193,7 @@ function checar_token(req, res, next) {
 
         const decoded = jwt.verify(token, process.env.CHAVE_TOKEN);
 
-        console.log("DECODED:", decoded);
+        console.log("DECODED:", decoded); //mostra o id e o email no terminal
 
         req.usuario = {
             id: Number(decoded.id),
@@ -175,7 +268,7 @@ app.post("/usuarios", async (req, res) => {
     }
 });
 
-// ================= LOGIN (CORRIGIDO) =================
+// ================= LOGIN =================
 
 app.post("/login", async (req, res) => {
     try {
@@ -265,15 +358,37 @@ app.get("/usuarios/:id", checar_token, async (req, res) => {
 
 app.put("/usuarios/:id", checar_token, async (req, res) => {
     try {
-        const { id } = req.params;
+        const paramID = Number(req.params.id);
+        const usuarioID = Number(req.usuario.id);
 
-        if (!verificarAcesso(req, id)) {
+        console.log("JWT ID:", usuarioID);
+        console.log("PARAM ID:", paramID);
+
+        if (!usuarioID) {
+            return res.status(403).json("Token inválido (sem ID)");
+        }
+
+        if (usuarioID !== paramID) {
             return res.status(403).json("Acesso negado");
         }
 
-        res.json("Usuário atualizado");
+        const {nome, email} = req.body;
+        const conexao = await db();
+
+        const resultado = await conexao.query(
+            `UPDATE Usuario SET nome=$1, email=$2 WHERE usuarioID=$3 RETURNING usuarioID`,
+            [nome, email, paramID]
+
+        );
+
+        if (resultado.rowCount === 0) {
+            return res.status(404).json("Usuário não encontrado");
+        }
+
+        res.status(200).json("Usuário Atualizado!");
 
     } catch (erro) {
+        console.log(erro.message);
         res.status(500).json("Erro no servidor");
     }
 });
@@ -313,36 +428,50 @@ app.delete("/usuarios/:id", checar_token, async (req, res) => {
     }
 });
 
-// ================= AUTÔNOMO =================
-
+// ================= ROTAS AUTONOMO =================
 app.post("/tornar-autonomo", checar_token, async (req, res) => {
     try {
-        const { profissao, cnpj } = req.body;
+        let { profissao, cnpj } = req.body;
 
         if (!profissao || !cnpj) {
             return res.status(422).json("Campos obrigatórios estão faltando");
         }
 
-        // 🔥 GARANTIA ABSOLUTA DO ID
         const usuarioID = Number(req.usuario?.id);
 
         if (!usuarioID) {
             return res.status(403).json("Token não contém ID válido");
         }
 
+        cnpj = normalizarCNPJ(cnpj);
+
+        if(!validarCNPJ(cnpj)){
+            return res.status(422).json("CNPJ inválido");
+        }
+
         const conexao = await db();
 
-        // 🔍 verifica se usuário existe mesmo
+        const cnpjHash = hashCNPJ(cnpj);
+        
         const usuarioExiste = await conexao.query(
             "SELECT 1 FROM Usuario WHERE usuarioID=$1",
             [usuarioID]
         );
-
         if (usuarioExiste.rows.length === 0) {
             return res.status(404).json("Usuário não existe");
         }
 
-        // 🔍 já é autônomo?
+
+        const cnpjExiste = await conexao.query(
+            "SELECT 1 FROM Autonomo WHERE cnpj_hash=$1",
+            [cnpjHash]
+        );
+
+        if(cnpjExiste.rows.length > 0){
+            return res.status(409).json("CNPJ já cadastrado!");
+        }
+        
+
         const existe = await conexao.query(
             "SELECT 1 FROM Autonomo WHERE usuarioID=$1",
             [usuarioID]
@@ -352,11 +481,12 @@ app.post("/tornar-autonomo", checar_token, async (req, res) => {
             return res.status(409).json("Usuário já é autônomo");
         }
 
-        // ✔ cria autônomo
+        const cnpjCriptado = criptografarCNPJ(cnpj);
+    
         await conexao.query(
-            `INSERT INTO Autonomo(usuarioID, profissao, cnpj)
-             VALUES($1,$2,$3)`,
-            [usuarioID, profissao, cnpj]
+            `INSERT INTO Autonomo(usuarioID, profissao, cnpj, cnpj_hash)
+             VALUES($1,$2,$3, $4)`,
+            [usuarioID, profissao, cnpjCriptado, cnpjHash]
         );
 
         return res.status(201).json("Agora você é um autônomo!");
@@ -367,7 +497,103 @@ app.post("/tornar-autonomo", checar_token, async (req, res) => {
     }
 });
 
-// ================= START =================
+app.put("/autonomos/:id", checar_token, async (req, res) => {
+    try {
+
+        const autonomoID = Number(req.params.id);
+        const usuarioID = Number(req.usuario.id);
+
+        if (!usuarioID) {
+            return res.status(403).json("Token inválido");
+        }
+
+        const { profissao } = req.body;
+
+        if(!profissao){
+            return res.status(422).json("Insira uma profissao");
+        }
+
+        const conexao = await db();
+
+        // verifica se o autônomo pertence ao usuário
+        const autonomo = await conexao.query(
+            `SELECT 1 FROM Autonomo
+             WHERE autonomoID=$1 AND usuarioID=$2`,
+
+            [autonomoID, usuarioID]
+        );
+
+        if (autonomo.rows.length === 0) {
+            return res.status(403).json("Acesso negado");
+        }
+
+        const resultado = await conexao.query(
+            `UPDATE Autonomo
+             SET profissao=$1
+             WHERE autonomoID=$2
+             RETURNING autonomoID`,
+
+            [profissao, autonomoID]
+        );
+
+        if (resultado.rowCount === 0) {
+            return res.status(404).json("Autônomo não encontrado");
+        }
+
+        res.status(200).json("Autônomo atualizado!");
+
+    } catch (erro) {
+
+        console.log(erro.message);
+
+        res.status(500).json("Erro no servidor");
+    }
+});
+
+app.delete("/autonomos/:id", checar_token, async (req, res) => {
+    try {
+
+        const autonomoID = Number(req.params.id);
+        const usuarioID = Number(req.usuario.id);
+
+        if (!usuarioID) {
+            return res.status(403).json("Token inválido");
+        }
+
+        const conexao = await db();
+
+        // verifica se o autônomo pertence ao usuário
+        const autonomo = await conexao.query(
+            `SELECT 1 FROM Autonomo
+             WHERE autonomoID=$1 AND usuarioID=$2`,
+            [autonomoID, usuarioID]
+        );
+
+        if (autonomo.rows.length === 0) {
+            return res.status(403).json("Acesso negado");
+        }
+
+        const resultado = await conexao.query(
+            `DELETE FROM Autonomo
+             WHERE autonomoID=$1
+             RETURNING autonomoID`,
+            [autonomoID]
+        );
+
+        if (resultado.rowCount === 0) {
+            return res.status(404).json("Autônomo não encontrado");
+        }
+
+        res.status(200).json("Autônomo deletado!");
+
+    } catch (erro) {
+
+        console.log(erro.message);
+
+        res.status(500).json("Erro no servidor");
+    }
+});
+// ================= Iniciar o Servidor =================
 
 app.listen(porta, () => {
     console.log(`Servidor rodando na porta ${porta}`);
