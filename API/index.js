@@ -173,38 +173,23 @@ function validarCNPJ(cnpj){
 
 function checar_token(req, res, next) {
     try {
-        const authHeader = req.headers['authorization'];
-
-        console.log("AUTH HEADER RECEBIDO:", authHeader);
+        const authHeader = req.headers.authorization;
 
         if (!authHeader) {
-            return res.status(401).json("Acesso negado (sem header)");
+            return res.status(401).json("Token não enviado");
         }
 
-        const parts = authHeader.split(" ");
-
-        let token;
-
-        if (parts.length === 2 && parts[0] === "Bearer") {
-            token = parts[1];
-        } else {
-            token = authHeader; // fallback
-        }
+        const token = authHeader.split(" ")[1];
 
         const decoded = jwt.verify(token, process.env.CHAVE_TOKEN);
 
-        console.log("DECODED:", decoded); //mostra o id e o email no terminal
-
-        req.usuario = {
-            id: Number(decoded.id),
-            email: decoded.email
-        };
+        req.usuario = decoded;
 
         next();
 
     } catch (erro) {
-        console.log("ERRO TOKEN:", erro.message);
-        return res.status(403).json("Token inválido ou expirado");
+        console.log(erro.message);
+        return res.status(403).json("Token inválido");
     }
 }
 // ================= USUÁRIO =================
@@ -324,6 +309,10 @@ function verificarAcesso(req, id) {
 
 app.get("/usuarios/:id", checar_token, async (req, res) => {
     try {
+
+        console.log("REQ.USUARIO:", req.usuario);
+        console.log("PARAM ID:", req.params.id);
+
         const { id } = req.params;
 
         if (!verificarAcesso(req, id)) {
