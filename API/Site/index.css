@@ -1,0 +1,22 @@
+.nav-bar{
+    width: 100%;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgb(15, 88, 0);
+    position: absolute;
+    top: 0;
+    left: 0;
+} 
+#codigo{
+    font-size: 50px;
+    font-family: Arial, Helvetica, sans-serifs;
+}
+.interface{
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: 200px;
+    flex-direction: column;
+}

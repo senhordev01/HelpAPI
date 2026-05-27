@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/API/Site/index.css">
+    <title>Confirmar Email</title>
+</head>
+<body>
+
+<section class="Sistema">
+
+    <div class="nav-bar">
+        <h1 style="color: white;">Seja Bem-Vindo(a) ao Help</h1>
+    </div>
+
+    <div class="interface">
+        <p>Aqui esta seu codigo de verificaçao do para confirmar seu e-mail</p>
+        <p id="codigo"></p>
+    </div>
+
+</section>
+
+<script>
+
+async function MostrarCodigo(){
+
+    const resposta = await fetch("http://localhost:3000/enviar");
+
+    const dados = await resposta.json();
+
+    document.getElementById("codigo").innerHTML = dados.codigo;
+}
+
+MostrarCodigo();
+
+</script>
+
+</body>
+</html>
